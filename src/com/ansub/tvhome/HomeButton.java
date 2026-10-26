@@ -125,6 +125,16 @@ public class HomeButton extends AccessibilityService {
         return false;
     }
 
+    // True on Fire TV: Amazon's home screen is there.
+    static boolean hasFireTvHome(Context c) {
+        try {
+            c.getPackageManager().getActivityInfo(TV_HOMES[1], 0);
+            return true;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
     // Opens the TV's own home screen (Google TV's or Fire TV's) and keeps it there. False if this TV
     // has neither.
     static boolean openGoogleTv(Context c) {

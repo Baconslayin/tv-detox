@@ -814,6 +814,10 @@ public class MainActivity extends Activity {
     private void openInput(String id) {
         Intent view = new Intent(Intent.ACTION_VIEW, TvContract.buildChannelUriForPassthroughInput(id));
         List<Intent> tries = new ArrayList<>();
+        // Fire TV: only Amazon's own apps may open its HDMI screen, and the one player that takes HDMI
+        // links (Vewd's) plays live TV instead, so the input plays in this app's own screen.
+        if (HomeButton.hasFireTvHome(this))
+            tries.add(new Intent(this, InputActivity.class).putExtra(InputActivity.EXTRA_INPUT, id));
         ResolveInfo def = getPackageManager().resolveActivity(view, PackageManager.MATCH_DEFAULT_ONLY);
         if (def != null && def.activityInfo != null && INPUT_PLAYER.equals(def.activityInfo.packageName))
             tries.add(new Intent(view).setClassName(INPUT_PLAYER, def.activityInfo.name));
