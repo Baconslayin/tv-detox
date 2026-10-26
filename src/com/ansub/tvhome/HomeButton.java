@@ -100,6 +100,17 @@ public class HomeButton extends AccessibilityService {
         return Math.abs(bootTime() - prefs.getLong("google_tv_boot", 0)) < 5000;
     }
 
+    // True if this TV has one of the home screens openGoogleTv can open.
+    static boolean hasTvHome(Context c) {
+        for (ComponentName home : TV_HOMES) {
+            try {
+                c.getPackageManager().getActivityInfo(home, 0);
+                return true;
+            } catch (Exception ignored) {}
+        }
+        return false;
+    }
+
     // Opens the TV's own home screen (Google TV's or Fire TV's) and keeps it there. False if this TV
     // has neither.
     static boolean openGoogleTv(Context c) {
