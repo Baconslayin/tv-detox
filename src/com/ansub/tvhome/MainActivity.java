@@ -92,6 +92,7 @@ public class MainActivity extends Activity {
     private static final String SETTINGS = "settings";
     private static final String ADD = "add";
     private static final String TV_HOME = "tv_home"; // the TV's own home screen (Fire TV's)
+    private static final String LIVE = "live_tv"; // antenna, cable or satellite TV from the TV's tuner
     private static final String[] EDIT_ITEMS = {"Move", "Replace", "Remove from home", "Uninstall"};
     private static final String[] EDIT_ITEMS_SYSTEM = {"Move", "Replace", "Remove from home", "App info"};
     private static final int PER_ROW = 6, MAX_INPUTS = 4;
@@ -528,12 +529,14 @@ public class MainActivity extends Activity {
             addTile(root, pkg, label, banner, null, icon, gridX(i), gridY(i), w, h);
         }
 
-        // Bottom row: Play Store, HDMI inputs, Settings, the TV's own home screen and Add app, six at most.
+        // Bottom row: Play Store, HDMI inputs, Settings, the TV's own home screen, Live TV and Add app,
+        // six at most.
         int col = 0;
         boolean store = !apps.contains(PLAY_STORE) && launchIntent(pm, PLAY_STORE) != null;
         boolean tvHome = HomeButton.hasTvHome(this);
+        boolean live = !liveTvIntents().isEmpty();
         List<TvInputInfo> inputs = hdmiInputs();
-        int room = PER_ROW - 2 - (store ? 1 : 0) - (tvHome ? 1 : 0);
+        int room = PER_ROW - 2 - (store ? 1 : 0) - (tvHome ? 1 : 0) - (live ? 1 : 0);
         if (inputs.size() > room) inputs = inputs.subList(0, room);
         if (store)
             addTile(root, PLAY_STORE, "Play Store", null, LineIcon.PLAY, null, m + col++ * (w + g), bottomTop, w, h);
@@ -542,6 +545,8 @@ public class MainActivity extends Activity {
         addTile(root, SETTINGS, Strings.t("Settings"), null, LineIcon.SETTINGS, null, m + col++ * (w + g), bottomTop, w, h);
         if (tvHome)
             addTile(root, TV_HOME, "Fire TV", null, LineIcon.HOUSE, null, m + col++ * (w + g), bottomTop, w, h);
+        if (live)
+            addTile(root, LIVE, "Live TV", null, LineIcon.LIVE_TV, null, m + col++ * (w + g), bottomTop, w, h);
         addTile(root, ADD, Strings.t("Add app"), null, LineIcon.PLUS, null, m + col * (w + g), bottomTop, w, h);
 
         // Plain icons at the top right, level with the date: any settings shortcuts picked, then the
@@ -770,6 +775,9 @@ public class MainActivity extends Activity {
             // Same as holding Back: the TV's own home screen, kept until the next restart.
             HomeButton.openGoogleTv(this);
             return;
+        } else if (LIVE.equals(key)) {
+            openLiveTv();
+            return;
         } else if (isInput(key)) {
             openInput(key);
             return;
@@ -810,6 +818,53 @@ public class MainActivity extends Activity {
         }
         tries.add(view);
         for (Intent t : tries) {
+            t.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            try {
+                startActivity(t);
+                return;
+            } catch (Exception ignored) {}
+        }
+    }
+
+    // Ways to open live TV on this TV, best first, keeping only the ones it can start: the tuner's
+    // channels in a Live TV app, then a Live TV app as it is, then the tuner's own app. Empty on a TV
+    // with no tuner and no Live TV app, so the tile is left out there. Amazon's own Live TV app only
+    // lets Amazon's apps in, so on Fire TV the tuner's channels open in the TV maker's player (Vewd on
+    // the Grundig).
+    private List<Intent> liveTvIntents() {
+        PackageManager pm = getPackageManager();
+        List<Intent> out = new ArrayList<>();
+        List<String> tunerApps = new ArrayList<>();
+        TvInputManager tim = (TvInputManager) getSystemService(Context.TV_INPUT_SERVICE);
+        List<TvInputInfo> tuners = new ArrayList<>();
+        if (tim != null) tuners.addAll(tim.getTvInputList());
+        // The TV's own antenna/cable tuner first: Android names hardware inputs ".../HW<n>". Apps like
+        // HbbTV or Prime Video also say they are tuners.
+        Collections.sort(tuners, (a, b) -> Boolean.compare(!a.getId().contains("/HW"), !b.getId().contains("/HW")));
+        for (TvInputInfo in : tuners) {
+            if (in.getType() != TvInputInfo.TYPE_TUNER || in.getParentId() != null || in.isHidden(this)) continue;
+            Intent view = new Intent(Intent.ACTION_VIEW, TvContract.buildChannelsUriForInput(in.getId()));
+            for (String[] app : LIVE_TV) {
+                Intent t = new Intent(view).setClassName(app[0], app[1]);
+                if (t.resolveActivity(pm) != null) out.add(t);
+            }
+            if (view.resolveActivity(pm) != null) out.add(view);
+            tunerApps.add(in.getServiceInfo().packageName);
+        }
+        for (String[] app : LIVE_TV) {
+            Intent t = new Intent().setClassName(app[0], app[1]);
+            if (t.resolveActivity(pm) != null) out.add(t);
+        }
+        for (String pkg : tunerApps) {
+            Intent t = launchIntent(pm, pkg);
+            if (t != null) out.add(t);
+        }
+        return out;
+    }
+
+    // Opens live TV the first way that starts.
+    private void openLiveTv() {
+        for (Intent t : liveTvIntents()) {
             t.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
             try {
                 startActivity(t);
