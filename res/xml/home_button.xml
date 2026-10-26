@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- HomeButton: only sees when Google TV's home screen opens. It can't see keys or read what's on screen. -->
+<!-- HomeButton: only sees when Google TV's or Fire TV's home screen opens. It can't see keys or read what's on screen. -->
 <accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
     android:accessibilityEventTypes="typeWindowStateChanged"
     android:accessibilityFeedbackType="feedbackGeneric"
     android:canRetrieveWindowContent="false"
-    android:packageNames="com.google.android.apps.tv.launcherx"
+    android:packageNames="com.google.android.apps.tv.launcherx,com.amazon.tv.launcher"
     android:notificationTimeout="0" />

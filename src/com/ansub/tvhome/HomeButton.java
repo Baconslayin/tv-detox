@@ -16,18 +16,20 @@ import android.view.accessibility.AccessibilityEvent;
 //
 // Google TV handles the Home key before accessibility services see it, so this doesn't watch keys.
 // It watches for Google TV's main screen (not its other pages) to open, after Home or a restart,
-// and opens this one over it.
+// and opens this one over it. Fire TV works the same way with Amazon's home screen.
 public class HomeButton extends AccessibilityService {
-    private static final ComponentName GOOGLE_TV_HOME = new ComponentName(
-            "com.google.android.apps.tv.launcherx", "com.google.android.apps.tv.launcherx.home.HomeActivity");
+    // The TV's own home screens, in the order they're tried when Back is held.
+    private static final ComponentName[] TV_HOMES = {
+            new ComponentName("com.google.android.apps.tv.launcherx", "com.google.android.apps.tv.launcherx.home.HomeActivity"),
+            new ComponentName("com.amazon.tv.launcher", "com.amazon.tv.launcher.ui.HomeActivity_vNext"),
+    };
     // Debounce duplicate events until the activity resumes.
     private static long lastOpened = -500;
 
     @Override
     public void onAccessibilityEvent(AccessibilityEvent event) {
         if (event.getEventType() != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED
-                || !GOOGLE_TV_HOME.getPackageName().equals(String.valueOf(event.getPackageName()))
-                || !GOOGLE_TV_HOME.getClassName().equals(String.valueOf(event.getClassName())) || !setupDone()) return;
+                || !isTvHome(event) || !setupDone()) return;
         SharedPreferences prefs = prefs(this);
         if (stayingOnGoogleTv(prefs)) return;
         long now = SystemClock.elapsedRealtime();
@@ -48,6 +50,14 @@ public class HomeButton extends AccessibilityService {
         try {
             startActivity(new Intent(this, MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
         } catch (Exception ignored) {}
+    }
+
+    private static boolean isTvHome(AccessibilityEvent event) {
+        String pkg = String.valueOf(event.getPackageName()), cls = String.valueOf(event.getClassName());
+        for (ComponentName home : TV_HOMES) {
+            if (home.getPackageName().equals(pkg) && home.getClassName().equals(cls)) return true;
+        }
+        return false;
     }
 
     @Override
@@ -90,19 +100,21 @@ public class HomeButton extends AccessibilityService {
         return Math.abs(bootTime() - prefs.getLong("google_tv_boot", 0)) < 5000;
     }
 
-    // Opens Google TV's own home screen and keeps it there. False if this TV doesn't have it.
+    // Opens the TV's own home screen (Google TV's or Fire TV's) and keeps it there. False if this TV
+    // has neither.
     static boolean openGoogleTv(Context c) {
         SharedPreferences prefs = prefs(c);
         // Keep the choice through process death and updates, but not a TV restart.
         if (!prefs.edit().putLong("google_tv_boot", bootTime())
                 .putInt("google_tv_boot_count", bootCount(c)).commit()) return false;
-        try {
-            c.startActivity(new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME)
-                    .setComponent(GOOGLE_TV_HOME).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
-            return true;
-        } catch (Exception e) {
-            prefs.edit().remove("google_tv_boot").remove("google_tv_boot_count").commit();
-            return false;
+        for (ComponentName home : TV_HOMES) {
+            try {
+                c.startActivity(new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME)
+                        .setComponent(home).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+                return true;
+            } catch (Exception ignored) {}
         }
+        prefs.edit().remove("google_tv_boot").remove("google_tv_boot_count").commit();
+        return false;
     }
 }
