@@ -25,6 +25,7 @@ public class HomeButton extends AccessibilityService {
     };
     // Debounce duplicate events until the activity resumes.
     private static long lastOpened = -500;
+    private static final long TV_SETTINGS_IDLE = 5 * 60 * 1000;
 
     @Override
     public void onAccessibilityEvent(AccessibilityEvent event) {
@@ -33,6 +34,14 @@ public class HomeButton extends AccessibilityService {
         SharedPreferences prefs = prefs(this);
         if (stayingOnGoogleTv(prefs)) return;
         long now = SystemClock.elapsedRealtime();
+        // Fire TV's Settings, opened from this home screen: it is a page of Amazon's home screen, and
+        // its pages land back on it. Each one keeps it open another few minutes. Home pressed inside
+        // Amazon's home screen sends nothing, so a time limit is what ends it.
+        long settings = prefs.getLong("tv_settings", -1);
+        if (settings >= 0 && now >= settings && now - settings < TV_SETTINGS_IDLE) {
+            prefs.edit().putLong("tv_settings", now).commit();
+            return;
+        }
         if (now - lastOpened < 500) return;
 
         // Give an unfinished launch time to resume. Successful launches don't delay the next Home.
@@ -74,7 +83,12 @@ public class HomeButton extends AccessibilityService {
 
     // Back on this home screen: Home comes here again.
     static void onHomeResumed(Context c) {
-        prefs(c).edit().remove("google_tv_boot").remove("google_tv_boot_count").commit();
+        prefs(c).edit().remove("google_tv_boot").remove("google_tv_boot_count").remove("tv_settings").commit();
+    }
+
+    // The TV's Settings is about to open over this home screen: let Amazon's home screen show it.
+    static void allowTvSettings(Context c) {
+        prefs(c).edit().putLong("tv_settings", SystemClock.elapsedRealtime()).commit();
     }
 
     // This home screen opened and didn't crash. Also resets a stopped redirect loop.

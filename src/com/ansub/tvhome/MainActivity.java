@@ -128,10 +128,16 @@ public class MainActivity extends Activity {
     private static final int ICON_TOP = 76, ICON_BUTTON = 72, ICON_SIZE = 40, ICON_GAP = 12; // level with the date
 
     // The Settings tile opens a small menu: the home screen's own settings, then the TV's.
-    private static final String[] SETTINGS_ITEMS = {"Wallpaper", "Brightness", "TV settings"};
-    // Android TV 11 and later (Google TV too) has no Display page, but its "Display & Sound" page holds Picture.
-    private static final String[] TV_DISPLAY_SOUND = {"com.android.tv.settings",
-            "com.android.tv.settings.device.displaysound.DisplaySoundActivity"};
+    private static final String[] SETTINGS_ITEMS = {"Wallpaper", "TV settings"};
+    // Fire TV's settings pages that any app may open, as name, class. The rest (Picture, Sound,
+    // Preferences) only open for Amazon's apps, so they're reached through All settings.
+    private static final String FIRE_SETTINGS_PKG = "com.amazon.tv.settings.v2";
+    private static final String[][] FIRE_SETTINGS = {
+            {"Network", ".tv.network.NetworkActivity"},
+            {"Controllers & Bluetooth", ".tv.controllers_bluetooth_devices.ControllersAndBluetoothActivity"},
+            {"Applications", ".tv.applications.ApplicationsActivity"},
+            {"Device & Software", ".tv.device.DeviceActivity"},
+            {"Home Theater", ".tv.display_sounds.HomeTheaterActivity"}};
     // Wallpapers, saved by name: a gradient top to bottom, then a glow from the top left and one from
     // the bottom right. Dark ones first, then bright ones that get darker towards the bottom, so the
     // white labels stay easy to read. Only colours, no images, so every one costs the same as Dusk,
@@ -529,25 +535,25 @@ public class MainActivity extends Activity {
             addTile(root, pkg, label, banner, null, icon, gridX(i), gridY(i), w, h);
         }
 
-        // Bottom row: Play Store, HDMI inputs, Settings, the TV's own home screen, Live TV and Add app,
-        // six at most.
+        // Bottom row: Play Store, HDMI inputs, Settings, the TV's own home screen, Live TV and Add app.
+        // Past six the tiles get narrower, so every input still fits.
         int col = 0;
         boolean store = !apps.contains(PLAY_STORE) && launchIntent(pm, PLAY_STORE) != null;
         boolean tvHome = HomeButton.hasTvHome(this);
         boolean live = !liveTvIntents().isEmpty();
         List<TvInputInfo> inputs = hdmiInputs();
-        int room = PER_ROW - 2 - (store ? 1 : 0) - (tvHome ? 1 : 0) - (live ? 1 : 0);
-        if (inputs.size() > room) inputs = inputs.subList(0, room);
+        int n = inputs.size() + 2 + (store ? 1 : 0) + (tvHome ? 1 : 0) + (live ? 1 : 0);
+        int bw = n <= PER_ROW ? w : (getResources().getDisplayMetrics().widthPixels - 2 * m - g * (n - 1)) / n;
         if (store)
-            addTile(root, PLAY_STORE, "Play Store", null, LineIcon.PLAY, null, m + col++ * (w + g), bottomTop, w, h);
+            addTile(root, PLAY_STORE, "Play Store", null, LineIcon.PLAY, null, m + col++ * (bw + g), bottomTop, bw, h);
         for (TvInputInfo in : inputs)
-            addTile(root, in.getId(), inputLabel(in), null, LineIcon.HDMI, null, m + col++ * (w + g), bottomTop, w, h);
-        addTile(root, SETTINGS, Strings.t("Settings"), null, LineIcon.SETTINGS, null, m + col++ * (w + g), bottomTop, w, h);
+            addTile(root, in.getId(), inputLabel(in), null, LineIcon.HDMI, null, m + col++ * (bw + g), bottomTop, bw, h);
+        addTile(root, SETTINGS, Strings.t("Settings"), null, LineIcon.SETTINGS, null, m + col++ * (bw + g), bottomTop, bw, h);
         if (tvHome)
-            addTile(root, TV_HOME, "Fire TV", null, LineIcon.HOUSE, null, m + col++ * (w + g), bottomTop, w, h);
+            addTile(root, TV_HOME, "Fire TV", null, LineIcon.HOUSE, null, m + col++ * (bw + g), bottomTop, bw, h);
         if (live)
-            addTile(root, LIVE, "Live TV", null, LineIcon.LIVE_TV, null, m + col++ * (w + g), bottomTop, w, h);
-        addTile(root, ADD, Strings.t("Add app"), null, LineIcon.PLUS, null, m + col * (w + g), bottomTop, w, h);
+            addTile(root, LIVE, "Live TV", null, LineIcon.LIVE_TV, null, m + col++ * (bw + g), bottomTop, bw, h);
+        addTile(root, ADD, Strings.t("Add app"), null, LineIcon.PLUS, null, m + col * (bw + g), bottomTop, bw, h);
 
         // Plain icons at the top right, level with the date: any settings shortcuts picked, then the
         // network icon. Added last, so the first app keeps first focus; Up from the apps reaches them.
@@ -767,8 +773,7 @@ public class MainActivity extends Activity {
         } else if (SETTINGS.equals(key)) {
             dropdown(tile(SETTINGS), SETTINGS_ITEMS, which -> {
                 if (which == 0) showWallpapers();
-                else if (which == 1) openBrightness();
-                else openTvSettings();
+                else showTvSettings();
             });
             return;
         } else if (TV_HOME.equals(key)) {
@@ -981,22 +986,36 @@ public class MainActivity extends Activity {
         return false;
     }
 
-    // The TV's own picture screen, where brightness lives: the Picture shortcut's screens first (TCL's
-    // panel, then Android's Display page), then Android TV's Display & Sound page, else TV settings.
-    // Only system screens are started, so it needs no permission and changes nothing by itself.
-    private void openBrightness() {
-        if (openQuick("picture")) return;
-        Intent i = new Intent().setClassName(TV_DISPLAY_SOUND[0], TV_DISPLAY_SOUND[1]);
-        if (i.resolveActivity(getPackageManager()) != null) {
-            try {
-                startActivity(i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
-                return;
-            } catch (Exception ignored) {}
+    // Fire TV: a list of its settings pages that open from here, then All settings. Elsewhere the
+    // TV's settings open straight away.
+    private void showTvSettings() {
+        final List<Intent> pages = new ArrayList<>();
+        List<String> labels = new ArrayList<>();
+        PackageManager pm = getPackageManager();
+        for (String[] page : FIRE_SETTINGS) {
+            Intent i = new Intent().setClassName(FIRE_SETTINGS_PKG, FIRE_SETTINGS_PKG + page[1]);
+            ResolveInfo ri = pm.resolveActivity(i, 0);
+            if (ri == null || ri.activityInfo == null || !ri.activityInfo.exported) continue;
+            String perm = ri.activityInfo.permission;
+            if (perm != null && checkSelfPermission(perm) != PackageManager.PERMISSION_GRANTED) continue;
+            pages.add(i);
+            labels.add(Strings.t(page[0]));
         }
-        openTvSettings();
+        if (pages.isEmpty()) {
+            openTvSettings();
+            return;
+        }
+        labels.add(Strings.t("All settings"));
+        panel(Strings.t("TV settings"), labels, which -> {
+            if (which == pages.size()) openTvSettings();
+            else try { startActivity(pages.get(which).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)); }
+            catch (Exception ignored) {}
+        });
     }
 
+    // Fire TV's Settings is a page of Amazon's home screen, so Home button lets it stay for a while.
     private void openTvSettings() {
+        HomeButton.allowTvSettings(this);
         try { startActivity(new Intent(Settings.ACTION_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)); }
         catch (Exception ignored) {}
     }
